@@ -155,12 +155,14 @@ newSiteForm.addEventListener("submit", async (e) => {
 // ---------------- Day picker ----------------
 
 function dateRangeInclusive(minStr, maxStr) {
+  // Use UTC throughout: mixing a local-time Date with toISOString() (UTC)
+  // silently shifts/drops days whenever the browser isn't in UTC.
   const out = [];
-  const cur = new Date(`${minStr}T00:00:00`);
-  const end = new Date(`${maxStr}T00:00:00`);
+  const cur = new Date(`${minStr}T00:00:00Z`);
+  const end = new Date(`${maxStr}T00:00:00Z`);
   while (cur <= end) {
     out.push(cur.toISOString().slice(0, 10));
-    cur.setDate(cur.getDate() + 1);
+    cur.setUTCDate(cur.getUTCDate() + 1);
   }
   return out;
 }

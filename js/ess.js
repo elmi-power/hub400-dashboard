@@ -77,14 +77,13 @@ function buildEssSeries(allRows) {
 
   let lastPower = { 0: null, 1: null };
   let lastSoc = { 0: null, 1: null };
-  let lastPacOutTs = null;
+  let lastPacOut = { 0: null, 1: null };
   let lastEms = null;
 
   let i = 0;
   while (i < rows.length) {
     const groupTs = rows[i].ts.getTime();
     let j = i;
-    let pacOutVal = null;
     while (j < rows.length && rows[j].ts.getTime() === groupTs) {
       const r = rows[j];
       if (r.bms === 0 || r.bms === 1) {
@@ -96,8 +95,8 @@ function buildEssSeries(allRows) {
           lastSoc[r.bms] = r.soc;
           (r.bms === 0 ? pack0Soc : pack1Soc).push({ x: r.ts, y: r.soc });
         }
+        if (r.pacOut !== null) lastPacOut[r.bms] = r.pacOut;
       }
-      if (r.pacOut !== null) pacOutVal = r.pacOut;
       if (r.pEms !== null) lastEms = r.pEms;
       j++;
     }
@@ -110,9 +109,8 @@ function buildEssSeries(allRows) {
       const known = [lastSoc[0], lastSoc[1]].filter((v) => v !== null);
       socCombined.push({ x: ts, y: known.reduce((a, b) => a + b, 0) / known.length });
     }
-    if (pacOutVal !== null && groupTs !== lastPacOutTs) {
-      pacOutSeries.push({ x: ts, y: pacOutVal });
-      lastPacOutTs = groupTs;
+    if (lastPacOut[0] !== null || lastPacOut[1] !== null) {
+      pacOutSeries.push({ x: ts, y: (lastPacOut[0] || 0) + (lastPacOut[1] || 0) });
     }
 
     i = j;

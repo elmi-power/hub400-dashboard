@@ -35,8 +35,10 @@ Pack 1/2). Daraus abgeleitet:
 - **Batterieleistung**: `PackV × PackA` je Pack, dann pro Zeitpunkt aufsummiert
   (bei asynchronen Timestamps wird der jeweils letzte bekannte Wert des anderen Packs
   fortgeschrieben, klassisches „Forward-Fill & Summe“).
-- **PacOut**: erscheint in beiden Pack-Zeilen identisch (Systemwert, kein Pack-Wert) →
-  wird **nicht** aufsummiert, sondern einmal pro Zeitpunkt übernommen.
+- **PacOut**: wie die Batterieleistung je Pack per Forward-Fill nachgeführt und dann
+  pro Zeitpunkt aufsummiert. Hinweis: In den bisherigen Testdaten melden beide Packs
+  aktuell denselben PacOut-Wert (z.B. beide 3), wodurch die Summe wie eine
+  Verdopplung aussieht (6 statt 3) — falls das nicht stimmt, bitte Bescheid geben.
 - **SOC kombiniert**: **Mittelwert** aus Pack 1 + Pack 2 (nicht Summe — Prozent lässt
   sich nicht sinnvoll addieren).
 - **EMS-Setpoint**: letzter `P_EMS`-Wert aus `[PC]:Tmax/Pauxload/P_EMS` in der
