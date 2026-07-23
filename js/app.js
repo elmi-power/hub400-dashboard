@@ -1,198 +1,249 @@
 "use strict";
 
-const CONFIG_KEY = "csvDashboardConfig";
-
 const el = (id) => document.getElementById(id);
+
+const DEFAULT_SITES = [
+  { slug: "edzards-reisen", name: "Edzards Reisen" },
+  { slug: "niddatal", name: "Niddatal" },
+];
+
+function slugify(name) {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function titleCaseFromSlug(slug) {
+  return slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// ---------------- State ----------------
+
+let sites = DEFAULT_SITES.slice();
+let currentSiteSlug = null;
+let siteFileCache = {}; // slug -> { days: { 'YYYY-MM-DD': {path,name} }, others: [{path,name}] }
+let selectedDays = new Set();
+
+let currentGenericRows = [];
+let currentGenericFields = [];
+let genericChart = null;
+
+// ---------------- Site picker ----------------
+
+const siteChips = el("siteChips");
+const dayChips = el("dayChips");
+const otherFilesList = el("otherFilesList");
+const essSection = el("essSection");
+const genericSection = el("genericSection");
+const emptyState = el("emptyState");
+
+function renderSiteChips() {
+  siteChips.innerHTML = "";
+  sites.forEach((site) => {
+    const btn = document.createElement("button");
+    btn.className = "chip" + (site.slug === currentSiteSlug ? " active" : "");
+    btn.textContent = site.name;
+    btn.addEventListener("click", () => selectSite(site.slug));
+    siteChips.appendChild(btn);
+  });
+  const addBtn = document.createElement("button");
+  addBtn.className = "chip chip-add";
+  addBtn.textContent = "+ Neue hinzufügen";
+  addBtn.addEventListener("click", () => newSiteDialog.showModal());
+  siteChips.appendChild(addBtn);
+}
+
+async function refreshSites() {
+  try {
+    const items = await GitHub.listDir("data");
+    const dirs = items.filter((i) => i.type === "dir");
+    const known = new Set(sites.map((s) => s.slug));
+    for (const dir of dirs) {
+      if (known.has(dir.name)) continue;
+      let name = titleCaseFromSlug(dir.name);
+      try {
+        const meta = JSON.parse(await GitHub.fetchText(`data/${dir.name}/site.json`));
+        if (meta.name) name = meta.name;
+      } catch {
+        /* no site.json, fall back to slug title-case */
+      }
+      sites.push({ slug: dir.name, name });
+      known.add(dir.name);
+    }
+  } catch (err) {
+    console.warn("Sites konnten nicht geladen werden:", err.message);
+  }
+  renderSiteChips();
+}
+
+async function selectSite(slug) {
+  currentSiteSlug = slug;
+  selectedDays = new Set();
+  renderSiteChips();
+  dayChips.innerHTML = `<span class="hint">Lade…</span>`;
+  otherFilesList.innerHTML = "";
+  essSection.classList.add("hidden");
+  genericSection.classList.add("hidden");
+  emptyState.classList.remove("hidden");
+
+  try {
+    const files = await loadSiteFiles(slug);
+    renderDayChips(files.days);
+    renderOtherFiles(files.others);
+  } catch (err) {
+    dayChips.innerHTML = `<span class="hint">${err.message}</span>`;
+  }
+}
+
+async function loadSiteFiles(slug) {
+  if (siteFileCache[slug]) return siteFileCache[slug];
+  const items = await GitHub.listDir(`data/${slug}`);
+  const days = {};
+  const others = [];
+  for (const item of items) {
+    if (item.type !== "file" || !item.name.toLowerCase().endsWith(".csv")) continue;
+    const date = extractDayFromFilename(item.name);
+    if (date) {
+      days[date] = { path: item.path, name: item.name };
+    } else {
+      others.push({ path: item.path, name: item.name });
+    }
+  }
+  const result = { days, others };
+  siteFileCache[slug] = result;
+  return result;
+}
+
+function invalidateSiteCache(slug) {
+  delete siteFileCache[slug];
+}
+
+// ---------------- New site dialog ----------------
+
+const newSiteDialog = el("newSiteDialog");
+const newSiteForm = el("newSiteForm");
+const newSiteName = el("newSiteName");
+const newSiteError = el("newSiteError");
+
+el("cancelNewSiteBtn").addEventListener("click", () => newSiteDialog.close());
+
+newSiteForm.addEventListener("submit", async (e) => {
+  newSiteError.textContent = "";
+  const name = newSiteName.value.trim();
+  if (!name) return;
+  const slug = slugify(name);
+  if (sites.some((s) => s.slug === slug)) {
+    newSiteDialog.close();
+    newSiteName.value = "";
+    selectSite(slug);
+    return;
+  }
+  try {
+    await GitHub.commitFile(`data/${slug}/site.json`, JSON.stringify({ name }, null, 2), `Add site "${name}"`);
+    sites.push({ slug, name });
+    newSiteDialog.close();
+    newSiteName.value = "";
+    renderSiteChips();
+    selectSite(slug);
+  } catch (err) {
+    newSiteError.textContent = err.message;
+  }
+});
+
+// ---------------- Day picker ----------------
+
+function dateRangeInclusive(minStr, maxStr) {
+  const out = [];
+  const cur = new Date(`${minStr}T00:00:00`);
+  const end = new Date(`${maxStr}T00:00:00`);
+  while (cur <= end) {
+    out.push(cur.toISOString().slice(0, 10));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
+}
+
+function renderDayChips(days) {
+  const dates = Object.keys(days).sort();
+  if (!dates.length) {
+    dayChips.innerHTML = `<span class="hint">Noch keine datierten CSVs für diese Site.</span>`;
+    return;
+  }
+  const range = dateRangeInclusive(dates[0], dates[dates.length - 1]);
+  dayChips.innerHTML = "";
+  range.forEach((date) => {
+    const available = !!days[date];
+    const btn = document.createElement("button");
+    btn.className = "chip day-chip" + (available ? "" : " missing") + (selectedDays.has(date) ? " active" : "");
+    btn.textContent = date.slice(5); // MM-DD
+    btn.title = date;
+    if (!available) btn.disabled = true;
+    else {
+      btn.addEventListener("click", () => {
+        if (selectedDays.has(date)) selectedDays.delete(date);
+        else selectedDays.add(date);
+        renderDayChips(days);
+        loadSelectedDays(days);
+      });
+    }
+    dayChips.appendChild(btn);
+  });
+}
+
+function renderOtherFiles(others) {
+  otherFilesList.innerHTML = "";
+  if (!others.length) return;
+  others.forEach((f) => {
+    const btn = document.createElement("button");
+    btn.className = "chip";
+    btn.textContent = f.name;
+    btn.addEventListener("click", async () => {
+      try {
+        const text = await GitHub.fetchText(f.path);
+        loadCsvText(f.name, text);
+      } catch (err) {
+        setUploadStatus(err.message, true);
+      }
+    });
+    otherFilesList.appendChild(btn);
+  });
+}
+
+async function loadSelectedDays(days) {
+  if (!selectedDays.size) {
+    essSection.classList.add("hidden");
+    genericSection.classList.add("hidden");
+    emptyState.classList.remove("hidden");
+    return;
+  }
+  emptyState.classList.add("hidden");
+  try {
+    const sortedDates = Array.from(selectedDays).sort();
+    const texts = await Promise.all(sortedDates.map((d) => GitHub.fetchText(days[d].path)));
+    let allRows = [];
+    texts.forEach((text, idx) => {
+      const rows = parseEssCsv(text, sortedDates[idx]);
+      if (rows) allRows = allRows.concat(rows);
+    });
+    const series = buildEssSeries(allRows);
+    renderEssDashboard(series);
+    essSection.classList.remove("hidden");
+    genericSection.classList.add("hidden");
+  } catch (err) {
+    setUploadStatus(err.message, true);
+  }
+}
+
+// ---------------- Upload ----------------
 
 const dropzone = el("dropzone");
 const csvInput = el("csvInput");
 const saveToRepo = el("saveToRepo");
 const uploadStatus = el("uploadStatus");
-const fileList = el("fileList");
-const refreshBtn = el("refreshBtn");
-const settingsBtn = el("settingsBtn");
-const settingsDialog = el("settingsDialog");
-const settingsForm = el("settingsForm");
-const cfgOwner = el("cfgOwner");
-const cfgRepo = el("cfgRepo");
-const cfgBranch = el("cfgBranch");
-const cfgToken = el("cfgToken");
-const clearTokenBtn = el("clearTokenBtn");
-const cancelSettingsBtn = el("cancelSettingsBtn");
 
-const datasetSection = el("datasetSection");
-const datasetName = el("datasetName");
-const statsRow = el("statsRow");
-const chartType = el("chartType");
-const xField = el("xField");
-const yFields = el("yFields");
-const renderChartBtn = el("renderChartBtn");
-const chartCanvas = el("chartCanvas");
-const dataTable = el("dataTable");
-
-let currentRows = [];
-let currentFields = [];
-let chartInstance = null;
-
-function loadConfig() {
-  try {
-    return JSON.parse(localStorage.getItem(CONFIG_KEY)) || {};
-  } catch {
-    return {};
-  }
-}
-
-function saveConfig(cfg) {
-  localStorage.setItem(CONFIG_KEY, JSON.stringify(cfg));
-}
-
-function getConfig() {
-  return loadConfig();
-}
-
-function openSettings() {
-  const cfg = loadConfig();
-  cfgOwner.value = cfg.owner || "";
-  cfgRepo.value = cfg.repo || "";
-  cfgBranch.value = cfg.branch || "main";
-  cfgToken.value = cfg.token || "";
-  settingsDialog.showModal();
-}
-
-settingsBtn.addEventListener("click", openSettings);
-cancelSettingsBtn.addEventListener("click", () => settingsDialog.close());
-
-clearTokenBtn.addEventListener("click", () => {
-  const cfg = loadConfig();
-  delete cfg.token;
-  saveConfig(cfg);
-  cfgToken.value = "";
-});
-
-settingsForm.addEventListener("submit", (e) => {
-  const cfg = {
-    owner: cfgOwner.value.trim(),
-    repo: cfgRepo.value.trim(),
-    branch: cfgBranch.value.trim() || "main",
-    token: cfgToken.value.trim(),
-  };
-  saveConfig(cfg);
-  settingsDialog.close();
-  refreshFileList();
-});
-
-// ---------- GitHub API ----------
-
-function ghHeaders(accept) {
-  const cfg = getConfig();
-  const headers = { Accept: accept || "application/vnd.github+json" };
-  if (cfg.token) headers.Authorization = `token ${cfg.token}`;
-  return headers;
-}
-
-async function listRepoCsvFiles() {
-  const cfg = getConfig();
-  if (!cfg.owner || !cfg.repo) return [];
-  const url = `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/data?ref=${encodeURIComponent(cfg.branch || "main")}`;
-  const res = await fetch(url, { headers: ghHeaders() });
-  if (!res.ok) {
-    if (res.status === 404) return [];
-    throw new Error(`GitHub API Fehler (${res.status})`);
-  }
-  const items = await res.json();
-  return items.filter((i) => i.type === "file" && i.name.toLowerCase().endsWith(".csv"));
-}
-
-async function fetchRepoFileText(path) {
-  const cfg = getConfig();
-  const url = `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/${path}?ref=${encodeURIComponent(cfg.branch || "main")}`;
-  const res = await fetch(url, { headers: ghHeaders("application/vnd.github.raw") });
-  if (!res.ok) throw new Error(`Datei konnte nicht geladen werden (${res.status})`);
-  return res.text();
-}
-
-function utf8ToBase64(str) {
-  return btoa(unescape(encodeURIComponent(str)));
-}
-
-async function commitCsvToRepo(filename, content) {
-  const cfg = getConfig();
-  if (!cfg.owner || !cfg.repo) throw new Error("Bitte zuerst Owner/Repo in den Einstellungen setzen.");
-  if (!cfg.token) throw new Error("Bitte einen GitHub Token in den Einstellungen hinterlegen, um speichern zu können.");
-
-  const path = `data/${filename}`;
-  const branch = cfg.branch || "main";
-  const base = `https://api.github.com/repos/${cfg.owner}/${cfg.repo}/contents/${path}`;
-
-  let sha;
-  const existing = await fetch(`${base}?ref=${encodeURIComponent(branch)}`, { headers: ghHeaders() });
-  if (existing.ok) {
-    const json = await existing.json();
-    sha = json.sha;
-  }
-
-  const res = await fetch(base, {
-    method: "PUT",
-    headers: { ...ghHeaders(), "Content-Type": "application/json" },
-    body: JSON.stringify({
-      message: `Upload ${filename} via CSV Dashboard`,
-      content: utf8ToBase64(content),
-      branch,
-      ...(sha ? { sha } : {}),
-    }),
-  });
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.message || `Commit fehlgeschlagen (${res.status})`);
-  }
-}
-
-// ---------- Sidebar file list ----------
-
-async function refreshFileList() {
-  const cfg = getConfig();
-  if (!cfg.owner || !cfg.repo) {
-    fileList.innerHTML = `<li class="hint">Repo in Einstellungen konfigurieren…</li>`;
-    return;
-  }
-  fileList.innerHTML = `<li class="hint">Lade…</li>`;
-  try {
-    const files = await listRepoCsvFiles();
-    if (!files.length) {
-      fileList.innerHTML = `<li class="hint">Noch keine CSVs im data/-Ordner.</li>`;
-      return;
-    }
-    fileList.innerHTML = "";
-    files.forEach((f) => {
-      const li = document.createElement("li");
-      const btn = document.createElement("button");
-      btn.textContent = f.name;
-      btn.addEventListener("click", () => loadFromRepo(f, btn));
-      li.appendChild(btn);
-      fileList.appendChild(li);
-    });
-  } catch (err) {
-    fileList.innerHTML = `<li class="hint">${err.message}</li>`;
-  }
-}
-
-async function loadFromRepo(fileMeta, btnEl) {
-  document.querySelectorAll(".file-list button").forEach((b) => b.classList.remove("active"));
-  if (btnEl) btnEl.classList.add("active");
-  try {
-    const text = await fetchRepoFileText(fileMeta.path);
-    parseAndRender(fileMeta.name, text);
-  } catch (err) {
-    setStatus(err.message, true);
-  }
-}
-
-refreshBtn.addEventListener("click", refreshFileList);
-
-// ---------- Upload handling ----------
-
-function setStatus(msg, isError) {
+function setUploadStatus(msg, isError) {
   uploadStatus.textContent = msg;
   uploadStatus.className = "status" + (isError ? " error" : msg ? " success" : "");
 }
@@ -219,68 +270,91 @@ csvInput.addEventListener("change", (e) => {
 });
 
 function handleFile(file) {
-  setStatus("Lese Datei…");
+  setUploadStatus("Lese Datei…");
   const reader = new FileReader();
   reader.onload = async () => {
     const text = reader.result;
-    parseAndRender(file.name, text);
+    loadCsvText(file.name, text);
+
     if (saveToRepo.checked) {
+      if (!currentSiteSlug) {
+        setUploadStatus("Bitte zuerst eine Site auswählen, um zu speichern.", true);
+        return;
+      }
       try {
-        setStatus("Speichere im Repo…");
-        await commitCsvToRepo(file.name, text);
-        setStatus(`"${file.name}" im Repo gespeichert.`);
-        refreshFileList();
+        setUploadStatus("Speichere im Repo…");
+        await GitHub.commitFile(`data/${currentSiteSlug}/${file.name}`, text, `Upload ${file.name} via Dashboard`);
+        setUploadStatus(`"${file.name}" bei ${sites.find((s) => s.slug === currentSiteSlug)?.name} gespeichert.`);
+        invalidateSiteCache(currentSiteSlug);
+        const files = await loadSiteFiles(currentSiteSlug);
+        renderDayChips(files.days);
+        renderOtherFiles(files.others);
       } catch (err) {
-        setStatus(err.message, true);
+        setUploadStatus(err.message, true);
       }
     } else {
-      setStatus("");
+      setUploadStatus("");
     }
   };
-  reader.onerror = () => setStatus("Datei konnte nicht gelesen werden.", true);
+  reader.onerror = () => setUploadStatus("Datei konnte nicht gelesen werden.", true);
   reader.readAsText(file);
 }
 
-// ---------- Parsing & rendering ----------
-
-function parseAndRender(name, text) {
-  const parsed = Papa.parse(text, { header: true, dynamicTyping: true, skipEmptyLines: true });
-  if (parsed.errors && parsed.errors.length) {
-    console.warn("CSV Parse-Warnungen:", parsed.errors);
+function loadCsvText(filename, text) {
+  const firstLine = (text.split(/\r?\n/)[0] || "");
+  if (looksLikeEssFile(firstLine)) {
+    const date = extractDayFromFilename(filename) || new Date().toISOString().slice(0, 10);
+    const rows = parseEssCsv(text, date);
+    const series = buildEssSeries(rows || []);
+    renderEssDashboard(series);
+    essSection.classList.remove("hidden");
+    genericSection.classList.add("hidden");
+    emptyState.classList.add("hidden");
+  } else {
+    parseAndRenderGeneric(filename, text);
+    essSection.classList.add("hidden");
+    genericSection.classList.remove("hidden");
+    emptyState.classList.add("hidden");
   }
-  currentRows = parsed.data;
-  currentFields = parsed.meta.fields || [];
-  renderDataset(name, currentRows, currentFields);
+}
+
+// ---------------- Generic fallback dashboard (non-ESS CSVs) ----------------
+
+const datasetName = el("datasetName");
+const statsRow = el("statsRow");
+const chartTypeSel = el("chartType");
+const xFieldSel = el("xField");
+const yFieldsSel = el("yFields");
+const dataTable = el("dataTable");
+
+function parseAndRenderGeneric(name, text) {
+  const parsed = Papa.parse(text, { header: true, dynamicTyping: true, skipEmptyLines: true });
+  currentGenericRows = parsed.data;
+  currentGenericFields = parsed.meta.fields || [];
+  datasetName.textContent = `${name} — ${currentGenericRows.length} Zeilen, ${currentGenericFields.length} Spalten`;
+  renderGenericStats();
+  populateGenericFieldSelectors();
+  renderGenericTable();
+  renderGenericChart();
 }
 
 function isNumericField(field) {
-  return currentRows.some((r) => typeof r[field] === "number");
+  return currentGenericRows.some((r) => typeof r[field] === "number");
 }
 
-function renderDataset(name, rows, fields) {
-  datasetSection.classList.remove("hidden");
-  datasetName.textContent = `${name} — ${rows.length} Zeilen, ${fields.length} Spalten`;
-
-  renderStats(rows, fields);
-  populateFieldSelectors(fields);
-  renderTable(rows, fields);
-  renderChart();
-}
-
-function renderStats(rows, fields) {
+function renderGenericStats() {
   statsRow.innerHTML = "";
-  const numericFields = fields.filter(isNumericField);
-
-  addStatCard("Zeilen", rows.length);
-  addStatCard("Spalten", fields.length);
-
-  numericFields.slice(0, 4).forEach((field) => {
-    const values = rows.map((r) => r[field]).filter((v) => typeof v === "number");
-    if (!values.length) return;
-    const sum = values.reduce((a, b) => a + b, 0);
-    const avg = sum / values.length;
-    addStatCard(`Ø ${field}`, avg.toFixed(2));
-  });
+  addStatCard("Zeilen", currentGenericRows.length);
+  addStatCard("Spalten", currentGenericFields.length);
+  currentGenericFields
+    .filter(isNumericField)
+    .slice(0, 4)
+    .forEach((field) => {
+      const values = currentGenericRows.map((r) => r[field]).filter((v) => typeof v === "number");
+      if (!values.length) return;
+      const avg = values.reduce((a, b) => a + b, 0) / values.length;
+      addStatCard(`Ø ${field}`, avg.toFixed(2));
+    });
 }
 
 function addStatCard(label, value) {
@@ -290,34 +364,32 @@ function addStatCard(label, value) {
   statsRow.appendChild(card);
 }
 
-function populateFieldSelectors(fields) {
-  xField.innerHTML = "";
-  yFields.innerHTML = "";
-  fields.forEach((f) => {
-    const opt1 = document.createElement("option");
-    opt1.value = f;
-    opt1.textContent = f;
-    xField.appendChild(opt1);
-
-    const opt2 = document.createElement("option");
-    opt2.value = f;
-    opt2.textContent = f;
-    yFields.appendChild(opt2);
+function populateGenericFieldSelectors() {
+  xFieldSel.innerHTML = "";
+  yFieldsSel.innerHTML = "";
+  currentGenericFields.forEach((f) => {
+    const o1 = document.createElement("option");
+    o1.value = f;
+    o1.textContent = f;
+    xFieldSel.appendChild(o1);
+    const o2 = document.createElement("option");
+    o2.value = f;
+    o2.textContent = f;
+    yFieldsSel.appendChild(o2);
   });
-
-  const numericFields = fields.filter(isNumericField);
-  const nonNumeric = fields.find((f) => !numericFields.includes(f));
-  if (nonNumeric) xField.value = nonNumeric;
-  Array.from(yFields.options).forEach((opt) => {
+  const numericFields = currentGenericFields.filter(isNumericField);
+  const nonNumeric = currentGenericFields.find((f) => !numericFields.includes(f));
+  if (nonNumeric) xFieldSel.value = nonNumeric;
+  Array.from(yFieldsSel.options).forEach((opt) => {
     opt.selected = numericFields.includes(opt.value);
   });
 }
 
-function renderTable(rows, fields) {
-  const preview = rows.slice(0, 100);
-  const thead = `<thead><tr>${fields.map((f) => `<th>${escapeHtml(f)}</th>`).join("")}</tr></thead>`;
+function renderGenericTable() {
+  const preview = currentGenericRows.slice(0, 100);
+  const thead = `<thead><tr>${currentGenericFields.map((f) => `<th>${escapeHtml(f)}</th>`).join("")}</tr></thead>`;
   const tbody = `<tbody>${preview
-    .map((r) => `<tr>${fields.map((f) => `<td>${escapeHtml(r[f])}</td>`).join("")}</tr>`)
+    .map((r) => `<tr>${currentGenericFields.map((f) => `<td>${escapeHtml(r[f])}</td>`).join("")}</tr>`)
     .join("")}</tbody>`;
   dataTable.innerHTML = thead + tbody;
 }
@@ -327,29 +399,29 @@ function escapeHtml(val) {
   return String(val).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-function renderChart() {
-  if (!currentRows.length) return;
-  const type = chartType.value;
-  const x = xField.value;
-  const ySelected = Array.from(yFields.selectedOptions).map((o) => o.value);
+function renderGenericChart() {
+  if (!currentGenericRows.length) return;
+  const type = chartTypeSel.value;
+  const x = xFieldSel.value;
+  const ySelected = Array.from(yFieldsSel.selectedOptions).map((o) => o.value);
   if (!ySelected.length) return;
 
-  const labels = currentRows.map((r) => r[x]);
-  const palette = ["#4f6df5", "#f5734f", "#2e9e5b", "#c94fdc", "#f5c14f", "#4fd0f5"];
+  const labels = currentGenericRows.map((r) => r[x]);
+  const palette = [ELMI_COLORS.purple, ELMI_COLORS.red, ELMI_COLORS.orange, ELMI_COLORS.magenta];
 
   let datasets;
   if (type === "pie") {
     datasets = [
       {
         label: ySelected[0],
-        data: currentRows.map((r) => r[ySelected[0]]),
-        backgroundColor: currentRows.map((_, i) => palette[i % palette.length]),
+        data: currentGenericRows.map((r) => r[ySelected[0]]),
+        backgroundColor: currentGenericRows.map((_, i) => palette[i % palette.length]),
       },
     ];
   } else {
     datasets = ySelected.map((f, i) => ({
       label: f,
-      data: type === "scatter" ? currentRows.map((r) => ({ x: r[x], y: r[f] })) : currentRows.map((r) => r[f]),
+      data: type === "scatter" ? currentGenericRows.map((r) => ({ x: r[x], y: r[f] })) : currentGenericRows.map((r) => r[f]),
       borderColor: palette[i % palette.length],
       backgroundColor: palette[i % palette.length],
       fill: false,
@@ -357,10 +429,10 @@ function renderChart() {
     }));
   }
 
-  if (chartInstance) chartInstance.destroy();
-  chartInstance = new Chart(chartCanvas, {
+  if (genericChart) genericChart.destroy();
+  genericChart = new Chart(el("genericChartCanvas"), {
     type,
-    data: { labels: type === "pie" ? currentRows.map((r) => r[x]) : labels, datasets },
+    data: { labels: type === "pie" ? currentGenericRows.map((r) => r[x]) : labels, datasets },
     options: {
       responsive: true,
       maintainAspectRatio: false,
@@ -369,8 +441,28 @@ function renderChart() {
   });
 }
 
-renderChartBtn.addEventListener("click", renderChart);
+el("renderChartBtn").addEventListener("click", renderGenericChart);
 
-// ---------- Init ----------
+// ---------------- Settings (token only) ----------------
 
-refreshFileList();
+const settingsDialog = el("settingsDialog");
+el("settingsBtn").addEventListener("click", () => {
+  el("cfgToken").value = GitHub.getToken();
+  settingsDialog.showModal();
+});
+el("cancelSettingsBtn").addEventListener("click", () => settingsDialog.close());
+el("clearTokenBtn").addEventListener("click", () => {
+  GitHub.setToken("");
+  el("cfgToken").value = "";
+});
+el("settingsForm").addEventListener("submit", () => {
+  GitHub.setToken(el("cfgToken").value.trim());
+  settingsDialog.close();
+});
+
+// ---------------- Init ----------------
+
+function initApp() {
+  renderSiteChips();
+  refreshSites();
+}

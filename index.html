@@ -3,40 +3,110 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>CSV Dashboard</title>
+<title>HUB400 Dashboard</title>
 <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
-  <header class="topbar">
-    <h1>CSV Dashboard</h1>
-    <button id="settingsBtn" class="icon-btn" title="Repo-Einstellungen">⚙ Einstellungen</button>
-  </header>
 
-  <div class="layout">
-    <aside class="sidebar">
-      <div class="sidebar-head">
-        <h2>Gespeicherte CSVs</h2>
-        <button id="refreshBtn" class="icon-btn" title="Liste aktualisieren">⟳</button>
+  <div id="loginScreen" class="login-screen">
+    <div class="login-card">
+      <div class="elmi-logo elmi-logo-lg" aria-label="ELMI">
+        <span>ELMI</span>
       </div>
-      <ul id="fileList" class="file-list">
-        <li class="hint">Repo in Einstellungen konfigurieren…</li>
-      </ul>
-    </aside>
+      <h1>HUB400 Dashboard</h1>
+      <form id="loginForm">
+        <input type="password" id="loginPassword" placeholder="Passwort" autocomplete="current-password" required />
+        <button type="submit">Anmelden</button>
+        <p id="loginError" class="status error"></p>
+      </form>
+    </div>
+  </div>
 
-    <main class="content">
-      <section class="upload-card">
-        <label for="csvInput" class="dropzone" id="dropzone">
-          <span>CSV-Datei hierher ziehen oder klicken zum Auswählen</span>
-          <input type="file" id="csvInput" accept=".csv,text/csv" hidden />
-        </label>
-        <label class="save-toggle">
-          <input type="checkbox" id="saveToRepo" />
-          Beim Hochladen auch im Repo speichern (data/-Ordner)
-        </label>
-        <p id="uploadStatus" class="status"></p>
+  <div id="appRoot" class="hidden">
+    <header class="topbar">
+      <div class="brand">
+        <div class="elmi-logo" aria-label="ELMI"><span>ELMI</span></div>
+        <h1>HUB400 Dashboard</h1>
+      </div>
+      <div class="topbar-actions">
+        <button id="settingsBtn" class="icon-btn" title="GitHub Token">🔑 Token</button>
+        <button id="logoutBtn" class="icon-btn" title="Abmelden">Abmelden</button>
+      </div>
+    </header>
+
+    <div class="control-bar">
+      <div class="picker-block">
+        <span class="picker-label">Site</span>
+        <div id="siteChips" class="chip-row"></div>
+      </div>
+      <div class="picker-block">
+        <span class="picker-label">Tag(e)</span>
+        <div id="dayChips" class="chip-row scrollable"></div>
+      </div>
+      <div class="picker-block" id="otherFilesBlock">
+        <span class="picker-label">Weitere Dateien</span>
+        <div id="otherFilesList" class="chip-row scrollable"></div>
+      </div>
+    </div>
+
+    <section class="upload-card compact">
+      <label for="csvInput" class="dropzone" id="dropzone">
+        <span>CSV hierher ziehen oder klicken</span>
+        <input type="file" id="csvInput" accept=".csv,text/csv" hidden />
+      </label>
+      <label class="save-toggle">
+        <input type="checkbox" id="saveToRepo" />
+        Im Repo speichern (unter ausgewählter Site)
+      </label>
+      <p id="uploadStatus" class="status"></p>
+    </section>
+
+    <main id="dashboard">
+      <p id="emptyState" class="hint">Site wählen und einen oder mehrere Tage auswählen, oder eine CSV hochladen.</p>
+
+      <section id="essSection" class="hidden">
+        <div class="chart-grid-main">
+          <div class="chart-card">
+            <h3>Batterieleistung gesamt</h3>
+            <div class="chart-wrap"><canvas id="chartBattTotal"></canvas></div>
+          </div>
+          <div class="chart-card">
+            <h3>PacOut (Systemausgang)</h3>
+            <div class="chart-wrap"><canvas id="chartPacOut"></canvas></div>
+          </div>
+          <div class="chart-card">
+            <h3>SOC kombiniert</h3>
+            <div class="chart-wrap"><canvas id="chartSocCombined"></canvas></div>
+          </div>
+          <div class="chart-card">
+            <h3>PacOut vs. EMS-Setpoint / SOC</h3>
+            <div class="chart-wrap"><canvas id="chartEmsCompare"></canvas></div>
+          </div>
+        </div>
+
+        <h3 class="section-title">Pro Pack</h3>
+        <div class="chart-grid-small">
+          <div class="chart-card small">
+            <h4>Pack 1 Leistung</h4>
+            <div class="chart-wrap small"><canvas id="chartPack0Power"></canvas></div>
+          </div>
+          <div class="chart-card small">
+            <h4>Pack 2 Leistung</h4>
+            <div class="chart-wrap small"><canvas id="chartPack1Power"></canvas></div>
+          </div>
+          <div class="chart-card small">
+            <h4>Pack 1 SOC</h4>
+            <div class="chart-wrap small"><canvas id="chartPack0Soc"></canvas></div>
+          </div>
+          <div class="chart-card small">
+            <h4>Pack 2 SOC</h4>
+            <div class="chart-wrap small"><canvas id="chartPack1Soc"></canvas></div>
+          </div>
+        </div>
+        <p class="hint small zoom-hint">Ziehen = reinzoomen · Rechtsklick = zurücksetzen</p>
       </section>
 
-      <section id="datasetSection" class="dataset-section hidden">
+      <section id="genericSection" class="dataset-section hidden">
         <div class="dataset-header">
           <h2 id="datasetName">–</h2>
           <div class="stats-row" id="statsRow"></div>
@@ -61,7 +131,7 @@
         </div>
 
         <div class="chart-wrap">
-          <canvas id="chartCanvas"></canvas>
+          <canvas id="genericChartCanvas"></canvas>
         </div>
 
         <h3>Tabellenvorschau (erste 100 Zeilen)</h3>
@@ -74,22 +144,13 @@
 
   <dialog id="settingsDialog">
     <form id="settingsForm" method="dialog">
-      <h2>GitHub-Repo Einstellungen</h2>
-      <label>Owner / Organisation
-        <input type="text" id="cfgOwner" placeholder="z.B. mickmeyer" required />
-      </label>
-      <label>Repository
-        <input type="text" id="cfgRepo" placeholder="z.B. csv-dashboard" required />
-      </label>
-      <label>Branch
-        <input type="text" id="cfgBranch" placeholder="main" value="main" required />
-      </label>
-      <label>Personal Access Token (optional, nur für Speichern/private Repos nötig)
+      <h2>GitHub Token</h2>
+      <label>Personal Access Token
         <input type="password" id="cfgToken" placeholder="ghp_… (Fine-grained, Contents: Read & Write)" autocomplete="off" />
       </label>
       <p class="hint small">
-        Der Token wird ausschließlich lokal in deinem Browser gespeichert (localStorage) und niemals ins Repo committed.
-        Verwende am besten einen fine-grained Token, der nur auf dieses eine Repository beschränkt ist.
+        Wird nur lokal in deinem Browser gespeichert (localStorage), nie ins Repo committed.
+        Nötig zum Speichern von Uploads und zum Anlegen neuer Sites.
       </p>
       <div class="dialog-actions">
         <button type="button" id="clearTokenBtn" class="secondary">Token löschen</button>
@@ -99,8 +160,31 @@
     </form>
   </dialog>
 
+  <dialog id="newSiteDialog">
+    <form id="newSiteForm" method="dialog">
+      <h2>Neue Site anlegen</h2>
+      <label>Name
+        <input type="text" id="newSiteName" placeholder="z.B. Musterstadt" required />
+      </label>
+      <p id="newSiteError" class="status error"></p>
+      <div class="dialog-actions">
+        <button type="button" id="cancelNewSiteBtn" class="secondary">Abbrechen</button>
+        <button type="submit">Anlegen</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/github.js"></script>
+  <script src="js/ess.js"></script>
+  <script src="js/charts.js"></script>
   <script src="js/app.js"></script>
+  <script>
+    initAuthGate(initApp);
+  </script>
 </body>
 </html>

@@ -1,45 +1,73 @@
-# CSV Dashboard
+# HUB400 Dashboard (ELMI)
 
-Statisches Dashboard (reines HTML/CSS/JS, kein Build-Schritt) zum Hochladen,
-Anzeigen und Visualisieren von CSV-Dateien. Läuft komplett im Browser und kann
-kostenlos über GitHub Pages gehostet werden.
+Statisches Dashboard (reines HTML/CSS/JS, kein Build-Schritt) für ELMI-Batteriedaten
+(ESS `RunData` CSV-Exporte). Läuft komplett im Browser, gehostet über GitHub Pages,
+hinter einem Passwort-Login.
 
 ## Funktionen
 
-- CSV per Drag & Drop oder Dateiauswahl hochladen
-- Automatische Tabellenvorschau, Kennzahlen und Charts (Linie/Balken/Punkte/Kreis)
-- X-Achse und Y-Werte frei wählbar
-- Optional: Hochgeladene CSVs direkt ins Repo (`data/`-Ordner) committen, sodass sie
-  dauerhaft gespeichert bleiben und im Dashboard-Verlauf (Sidebar) wieder auswählbar sind
+- **Login**: Die gesamte Seite ist hinter einem Passwort-Screen versteckt (siehe
+  „Sicherheit“ unten für die Grenzen davon).
+- **Sites**: Feste Startauswahl „Edzards Reisen“ / „Niddatal“, weitere über
+  „+ Neue hinzufügen“ anlegbar (wird als `data/<site>/site.json` im Repo gespeichert).
+- **Tag(e) auswählen**: Pro Site werden alle im Repo vorhandenen Tage als Chip-Leiste
+  angezeigt (erkannt am Dateinamensmuster `..._Day[YYYY-MM-DD ...]...csv`). Fehlende
+  Tage werden ausgegraut mit angezeigt. Mehrere (auch nicht zusammenhängende) Tage
+  lassen sich gleichzeitig auswählen — die Daten werden dann zeitlich zusammengeführt.
+- **Direkt-Ansicht**: Eine neu hochgeladene CSV wird sofort angezeigt, unabhängig davon,
+  ob sie im Repo gespeichert wird.
+- **4 Hauptgrafiken** (Zeit auf X-Achse):
+  1. Batterieleistung gesamt (PackV × PackA, pro Pack, dann summiert)
+  2. PacOut (Systemausgang)
+  3. SOC kombiniert (Mittelwert beider Packs)
+  4. PacOut vs. EMS-Setpoint (letzter `P_EMS`-Wert als Referenzlinie) vs. SOC kombiniert
+     (zweite Y-Achse)
+- **4 Mini-Grafiken pro Pack**: Leistung Pack 1/2, SOC Pack 1/2
+- **Zoom**: Rahmen ziehen = reinzoomen, Rechtsklick = zurück auf die Ausgangsansicht
+- **Nicht-ESS-CSVs**: Fallback auf eine generische Tabellen-/Chart-Ansicht mit frei
+  wählbarer X-/Y-Achse (Linie/Balken/Punkte/Kreis)
+
+## Annahmen bei der Datenauswertung (bitte prüfen)
+
+Die ESS-Dateien loggen pro Zeitstempel meist zwei Zeilen (`[BatRack]:BmsIdx` 0/1 =
+Pack 1/2). Daraus abgeleitet:
+
+- **Batterieleistung**: `PackV × PackA` je Pack, dann pro Zeitpunkt aufsummiert
+  (bei asynchronen Timestamps wird der jeweils letzte bekannte Wert des anderen Packs
+  fortgeschrieben, klassisches „Forward-Fill & Summe“).
+- **PacOut**: erscheint in beiden Pack-Zeilen identisch (Systemwert, kein Pack-Wert) →
+  wird **nicht** aufsummiert, sondern einmal pro Zeitpunkt übernommen.
+- **SOC kombiniert**: **Mittelwert** aus Pack 1 + Pack 2 (nicht Summe — Prozent lässt
+  sich nicht sinnvoll addieren).
+- **EMS-Setpoint**: letzter `P_EMS`-Wert aus `[PC]:Tmax/Pauxload/P_EMS` in der
+  gewählten Auswahl, als horizontale Referenzlinie.
+
+Falls eine dieser Annahmen nicht stimmt, in `js/ess.js` (`buildEssSeries`) anpassen.
 
 ## Setup
 
-1. **Repo auf GitHub erstellen** (leer, ohne README) und diesen Ordner dorthin pushen:
-
-   ```bash
-   git remote add origin https://github.com/<dein-user>/<dein-repo>.git
-   git branch -M main
-   git push -u origin main
-   ```
-
-2. **GitHub Pages aktivieren**: Repo → *Settings* → *Pages* → *Build and deployment* →
-   Source: `Deploy from a branch`, Branch: `main` / `(root)`. Nach ein bis zwei Minuten
-   ist das Dashboard unter `https://<dein-user>.github.io/<dein-repo>/` erreichbar.
-
-3. **Im Dashboard konfigurieren**: Auf ⚙ *Einstellungen* klicken und Owner, Repo-Namen
-   und Branch eintragen. Damit kann das Dashboard vorhandene CSVs aus `data/` lesen
-   (öffentliche Repos funktionieren ohne Token, nur mit niedrigerem API-Ratenlimit).
-
-4. **Speichern aus dem Browser (optional)**: Um hochgeladene CSVs automatisch ins Repo
-   zu committen, wird ein GitHub Personal Access Token benötigt:
+1. **GitHub Pages aktivieren**: Repo → *Settings* → *Pages* → *Build and deployment* →
+   Source: `Deploy from a branch`, Branch: `main` / `(root)`.
+2. **Token hinterlegen** (für Speichern & neue Sites): Button 🔑 *Token* oben rechts.
    - GitHub → *Settings* → *Developer settings* → *Fine-grained tokens* → *Generate new token*
    - Repository access: nur auf **dieses eine Repo** beschränken
    - Permissions: **Contents → Read and write**
-   - Token im Dashboard unter Einstellungen eintragen
+   - Der Token wird ausschließlich lokal im Browser (`localStorage`) gespeichert, nie
+     ins Repo committed.
 
-   Der Token wird ausschließlich lokal im Browser (`localStorage`) gespeichert und nie
-   ins Repo committed. Trotzdem gilt: Token nur auf einem vertrauenswürdigen, eigenen
-   Gerät hinterlegen und bei Bedarf über den Button „Token löschen“ wieder entfernen.
+## Sicherheit / Login — wichtige Einschränkung
+
+Das Passwort-Feld prüft nur einen **SHA-256-Hash** (in `js/auth.js` hinterlegt) gegen
+die Eingabe — das Klartext-Passwort steht nirgends im Repo. Das ist aber **kein echter
+Zugriffsschutz**: Da der komplette Quellcode (inkl. Hash) öffentlich auf GitHub liegt,
+könnte ein Angreifer den Hash offline per Brute-Force angreifen oder das Frontend so
+verändern, dass die Prüfung übersprungen wird. Es hält casual/automatisierte Leser
+(auch andere KIs, die das Repo crawlen) davon ab, direkt an die Daten zu kommen — mehr
+nicht.
+
+**Für echten Zugriffsschutz**: Repo auf privat stellen (erfordert GitHub Pro/Team, dann
+funktioniert GitHub Pages nur für eingeloggte Collaborators) oder das Dashboard hinter
+einen Reverse Proxy mit echter Auth stellen.
 
 ## Lokal testen
 
@@ -48,18 +76,18 @@ Webserver statt per `file://` geöffnet werden, z. B.:
 
 ```bash
 npx serve .
-# oder
-python -m http.server 8080
 ```
-
-Danach im Browser `http://localhost:8080` öffnen.
 
 ## Projektstruktur
 
 ```
 csv-dashboard/
-├── index.html        Seitenstruktur
-├── css/style.css      Styling (hell/dunkel automatisch)
-├── js/app.js          Parsing (PapaParse), Charts (Chart.js), GitHub-API-Anbindung
-└── data/              CSV-Dateien (inkl. Beispiel sample.csv)
+├── index.html        Seitenstruktur (Login, Site-/Tag-Picker, Chart-Grid)
+├── css/style.css      Styling, ELMI-Branding (hell/dunkel automatisch)
+├── js/auth.js         Passwort-Gate (SHA-256-Hash-Vergleich)
+├── js/github.js       GitHub-Contents-API (lesen/schreiben, Token-Verwaltung)
+├── js/ess.js          Parsing & Aggregation der ESS RunData CSVs
+├── js/charts.js        Chart.js-Setup inkl. Zoom-Plugin
+├── js/app.js           Orchestrierung: Sites, Tage, Upload, generischer Fallback
+└── data/<site>/        CSV-Dateien pro Site (Dateiname enthält das Datum)
 ```
