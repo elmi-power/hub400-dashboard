@@ -213,7 +213,15 @@ function renderOtherFiles(others) {
   });
 }
 
+// Guards against out-of-order async completions: if the user toggles a day
+// again before a previous fetch resolves, only the *latest* click's result
+// may touch the DOM — otherwise an earlier, slower load can finish last and
+// overwrite/hide what the current selection should show.
+let loadDaysGeneration = 0;
+
 async function loadSelectedDays(days) {
+  const myGeneration = ++loadDaysGeneration;
+
   if (!selectedDays.size) {
     essSection.classList.add("hidden");
     genericSection.classList.add("hidden");
@@ -224,6 +232,8 @@ async function loadSelectedDays(days) {
   try {
     const sortedDates = Array.from(selectedDays).sort();
     const texts = await Promise.all(sortedDates.map((d) => GitHub.fetchText(days[d].path)));
+    if (myGeneration !== loadDaysGeneration) return; // superseded by a newer selection
+
     let allRows = [];
     texts.forEach((text, idx) => {
       const rows = parseEssCsv(text, sortedDates[idx]);
@@ -234,6 +244,7 @@ async function loadSelectedDays(days) {
     essSection.classList.remove("hidden");
     genericSection.classList.add("hidden");
   } catch (err) {
+    if (myGeneration !== loadDaysGeneration) return;
     setUploadStatus(err.message, true);
   }
 }
