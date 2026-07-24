@@ -46,6 +46,23 @@ Pack 1/2). Daraus abgeleitet:
 
 Falls eine dieser Annahmen nicht stimmt, in `js/ess.js` (`buildEssSeries`) anpassen.
 
+Die Spalten (`SOC`, `PackV`, `PackA`, `PacOut`, das `[PC]:Tmax/...`-Feld) werden pro
+Datei anhand der eigenen Kopfzeile gesucht, nicht über feste Positionen — verschiedene
+Exporte/Standorte hatten in der Praxis bereits leicht unterschiedliche Spaltenanzahlen
+und Feldnamen (z.B. fehlendes `PCS_Tmax`).
+
+## Bekannte Einschränkung: Browser-Cache nach einem Update
+
+GitHub Pages liefert alle Dateien mit `Cache-Control: max-age=600` aus (10 Minuten) —
+das lässt sich über Repo-Dateien nicht ändern (kein Custom-Header-Support). Nach einem
+Update kann ein Browser, der die Seite kurz vorher schon offen hatte, bis zu 10 Minuten
+lang noch die alte Version zeigen. Deployment selbst passiert automatisch bei jedem
+Push (i.d.R. unter 1 Minute) — das Problem ist rein der Browser-Cache danach. Hilft:
+**Strg+Umschalt+R** (harter Reload) oder kurz warten. `js/*.js`/`css/style.css` werden
+zusätzlich mit `?v=<Zeitstempel>` in `index.html` referenziert (bei jeder Änderung
+manuell hochzählen), damit zumindest unterschiedliche Versionen nie gemischt geladen
+werden.
+
 ## Setup
 
 1. **GitHub Pages aktivieren**: Repo → *Settings* → *Pages* → *Build and deployment* →
