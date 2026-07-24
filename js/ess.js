@@ -1,23 +1,30 @@
 "use strict";
 
-// Fixed column layout for ESS*_RunData_Day[...] exports (0-based indices).
-// These files have duplicate/odd header names (e.g. "Psum" appears twice
-// under different bracket groups), so we address columns positionally
-// instead of relying on the header row.
-const ESS_COL = {
-  TIME: 0,
-  BMS_IDX: 13,
-  SOC: 16,
-  PACK_V: 22,
-  PACK_A: 23,
-  PAC_OUT: 36,
-  PC_COMBINED: 93, // "Tmax|Pauxload|P_EMS"
-};
-
-const ESS_HEADER_SIGNATURE = ["[BatRack]:BmsIdx", "P_EMS"];
-
+// ESS*_RunData_Day[...] exports don't have a 100% stable column layout
+// between sites/firmware versions (columns get added/removed/renamed - e.g.
+// "PCS_Tmax" is missing in some exports, and the combined field at the end
+// is sometimes named "...P_EMS" and sometimes ".../3/4"). So instead of
+// fixed positional indices, we resolve each file's column positions from
+// its own header row every time.
 function looksLikeEssFile(headerLine) {
-  return ESS_HEADER_SIGNATURE.every((token) => headerLine.includes(token));
+  return ["[BatRack]:BmsIdx", "PackV", "PackA"].every((token) => headerLine.includes(token));
+}
+
+function resolveEssColumns(headerFields) {
+  const bmsIdx = headerFields.indexOf("[BatRack]:BmsIdx");
+  if (bmsIdx === -1) return null;
+  return {
+    TIME: 0,
+    BMS_IDX: bmsIdx,
+    SOC: headerFields.indexOf("SOC", bmsIdx),
+    PACK_V: headerFields.indexOf("PackV", bmsIdx),
+    PACK_A: headerFields.indexOf("PackA", bmsIdx),
+    PAC_OUT: headerFields.indexOf("PacOut"),
+    // e.g. "[PC]:Tmax/Pauxload/P_EMS" or "[PC]:Tmax/Pauxload/3/4" - the
+    // 3rd pipe-separated value in the corresponding data cell is always
+    // the EMS setpoint regardless of what this column happens to be titled.
+    PC_COMBINED: headerFields.findIndex((h) => h.startsWith("[PC]:Tmax/Pauxload")),
+  };
 }
 
 // "..._RunData_Day[2026-07-23 00_00_00]_2026-07-23 08_31_13.csv" -> "2026-07-23"
@@ -28,26 +35,29 @@ function extractDayFromFilename(filename) {
 
 function parseEssCsv(text, fallbackDate) {
   const lines = text.split(/\r?\n/);
-  const header = lines[0] || "";
-  if (!looksLikeEssFile(header)) return null;
+  const headerFields = (lines[0] || "").split(",");
+  if (!looksLikeEssFile(lines[0] || "")) return null;
+
+  const col = resolveEssColumns(headerFields);
+  if (!col || col.SOC === -1 || col.PACK_V === -1 || col.PACK_A === -1) return null;
 
   const rows = [];
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
     if (!line) continue;
     const f = line.split(",");
-    if (f.length < 40) continue;
-    const time = f[ESS_COL.TIME];
+    if (f.length < headerFields.length - 2) continue; // tolerate a trailing blank field
+    const time = f[col.TIME];
     if (!time) continue;
     const ts = new Date(`${fallbackDate}T${time}`);
     if (isNaN(ts.getTime())) continue;
 
-    const bms = f[ESS_COL.BMS_IDX];
-    const soc = parseFloat(f[ESS_COL.SOC]);
-    const packV = parseFloat(f[ESS_COL.PACK_V]);
-    const packA = parseFloat(f[ESS_COL.PACK_A]);
-    const pacOut = parseFloat(f[ESS_COL.PAC_OUT]);
-    const pcParts = (f[ESS_COL.PC_COMBINED] || "").split("|");
+    const bms = f[col.BMS_IDX];
+    const soc = parseFloat(f[col.SOC]);
+    const packV = parseFloat(f[col.PACK_V]);
+    const packA = parseFloat(f[col.PACK_A]);
+    const pacOut = col.PAC_OUT !== -1 ? parseFloat(f[col.PAC_OUT]) : NaN;
+    const pcParts = col.PC_COMBINED !== -1 ? (f[col.PC_COMBINED] || "").split("|") : [];
     const pEms = pcParts.length >= 3 ? parseFloat(pcParts[2]) : NaN;
 
     rows.push({
