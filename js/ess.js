@@ -20,13 +20,11 @@ function resolveEssColumns(headerFields) {
     PACK_V: headerFields.indexOf("PackV", bmsIdx),
     PACK_A: headerFields.indexOf("PackA", bmsIdx),
     PAC_OUT: headerFields.indexOf("PacOut"),
-    // NOT "[PC]:Tmax/Pauxload/P_EMS" - despite the name, that field sits
-    // outside the "[EMS]:" group and its values are erratic/implausible
-    // (jumps between 0 and 70000 with no correlation to PacOut). The real
-    // EMS setpoint is "[EMS]:...PsumSet_ACInputLmt", a plain single value
-    // inside the EMS group that stays constant for the whole day and is
-    // on the same kW scale as PacOut - confirmed against a real dataset.
-    EMS_SETPOINT: headerFields.indexOf("PsumSet_ACInputLmt"),
+    // "[PC]:Tmax/Pauxload/P_EMS" (some exports label the 3rd part
+    // differently, e.g. ".../3/4" - match by prefix to catch those too).
+    // The data cell is "Tmax|Pauxload|P_EMS" - the 3rd pipe-separated
+    // value is the EMS setpoint.
+    PC_COMBINED: headerFields.findIndex((h) => h.startsWith("[PC]:Tmax/Pauxload")),
   };
 }
 
@@ -60,7 +58,8 @@ function parseEssCsv(text, fallbackDate) {
     const packV = parseFloat(f[col.PACK_V]);
     const packA = parseFloat(f[col.PACK_A]);
     const pacOut = col.PAC_OUT !== -1 ? parseFloat(f[col.PAC_OUT]) : NaN;
-    const pEms = col.EMS_SETPOINT !== -1 ? parseFloat(f[col.EMS_SETPOINT]) : NaN;
+    const pcParts = col.PC_COMBINED !== -1 ? (f[col.PC_COMBINED] || "").split("|") : [];
+    const pEms = pcParts.length >= 3 ? parseFloat(pcParts[2]) : NaN;
 
     rows.push({
       ts,
