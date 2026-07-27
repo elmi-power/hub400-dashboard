@@ -41,8 +41,10 @@ Pack 1/2). Daraus abgeleitet:
   Verdopplung aussieht (6 statt 3) — falls das nicht stimmt, bitte Bescheid geben.
 - **SOC kombiniert**: **Mittelwert** aus Pack 1 + Pack 2 (nicht Summe — Prozent lässt
   sich nicht sinnvoll addieren).
-- **EMS-Setpoint**: letzter `P_EMS`-Wert aus `[PC]:Tmax/Pauxload/P_EMS` in der
-  gewählten Auswahl, als horizontale Referenzlinie.
+- **EMS-Setpoint**: letzter Wert aus `[EMS]:...PsumSet_ACInputLmt` in der gewählten
+  Auswahl, als horizontale Referenzlinie. **Nicht** `[PC]:Tmax/Pauxload/P_EMS` (liegt
+  außerhalb der `[EMS]:`-Gruppe, Werte dort sind unplausibel/springen zwischen 0 und
+  70000) — anhand eines echten Datensatzes (Edzards Reisen) verifiziert.
 
 Falls eine dieser Annahmen nicht stimmt, in `js/ess.js` (`buildEssSeries`) anpassen.
 
