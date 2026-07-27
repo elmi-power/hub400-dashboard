@@ -41,9 +41,10 @@ Pack 1/2). Daraus abgeleitet:
   Verdopplung aussieht (6 statt 3) — falls das nicht stimmt, bitte Bescheid geben.
 - **SOC kombiniert**: **Mittelwert** aus Pack 1 + Pack 2 (nicht Summe — Prozent lässt
   sich nicht sinnvoll addieren).
-- **EMS-Setpoint**: letzter Wert aus `[PC]:Tmax/Pauxload/P_EMS` (3. Teil des
-  Pipe-getrennten Felds `Tmax|Pauxload|P_EMS`) in der gewählten Auswahl, als
-  horizontale Referenzlinie — so vom Nutzer bestätigt.
+- **EMS-Setpoint**: 3. Teil des Pipe-getrennten Felds `[PC]:Tmax/Pauxload/P_EMS`
+  (`Tmax|Pauxload|P_EMS`), als vollständige Zeitreihe geplottet (nicht nur der letzte
+  Wert). Rohwert steht in **Watt**, wird durch 1000 geteilt (z.B. `70000.0` → 70 kW,
+  `1681.0` → 1,681 kW) — so vom Nutzer bestätigt.
 
 Falls eine dieser Annahmen nicht stimmt, in `js/ess.js` (`buildEssSeries`) anpassen.
 

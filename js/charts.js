@@ -116,18 +116,11 @@ function renderEssDashboard(series) {
     { rangeMin, rangeMax, yLabel: "%" }
   );
 
-  const emsLine =
-    series.emsSetpoint !== null && rangeMin && rangeMax
-      ? [
-          { x: rangeMin, y: series.emsSetpoint },
-          { x: rangeMax, y: series.emsSetpoint },
-        ]
-      : [];
   essCharts.emsCompare = baseTimeChart(
     "chartEmsCompare",
     [
       { label: "PacOut (kW)", data: series.pacOutSeries, borderColor: ELMI_COLORS.red, backgroundColor: ELMI_COLORS.red, borderWidth: 2, pointRadius: 0, tension: 0.15, yAxisID: "y" },
-      { label: `EMS Setpoint (${series.emsSetpoint ?? "–"} kW)`, data: emsLine, borderColor: ELMI_COLORS.orange, borderWidth: 2, borderDash: [6, 4], pointRadius: 0, yAxisID: "y" },
+      { label: "EMS Setpoint (kW)", data: series.emsSetpointSeries, borderColor: ELMI_COLORS.orange, backgroundColor: ELMI_COLORS.orange, borderWidth: 2, pointRadius: 0, tension: 0.15, yAxisID: "y" },
       { label: "SOC kombiniert (%)", data: series.socCombined, borderColor: ELMI_COLORS.magenta, backgroundColor: ELMI_COLORS.magenta, borderWidth: 2, pointRadius: 0, tension: 0.15, yAxisID: "y1" },
     ],
     { rangeMin, rangeMax, yLabel: "kW", y1Label: "%" }

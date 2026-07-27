@@ -59,7 +59,9 @@ function parseEssCsv(text, fallbackDate) {
     const packA = parseFloat(f[col.PACK_A]);
     const pacOut = col.PAC_OUT !== -1 ? parseFloat(f[col.PAC_OUT]) : NaN;
     const pcParts = col.PC_COMBINED !== -1 ? (f[col.PC_COMBINED] || "").split("|") : [];
-    const pEms = pcParts.length >= 3 ? parseFloat(pcParts[2]) : NaN;
+    // Raw value is in W, not kW (e.g. 70000 -> 70 kW, 1681 -> 1.681 kW).
+    const pEmsRaw = pcParts.length >= 3 ? parseFloat(pcParts[2]) : NaN;
+    const pEms = isNaN(pEmsRaw) ? NaN : pEmsRaw / 1000;
 
     rows.push({
       ts,
@@ -67,7 +69,7 @@ function parseEssCsv(text, fallbackDate) {
       soc: isNaN(soc) ? null : soc,
       power: isNaN(packV) || isNaN(packA) ? null : (packV * packA) / 1000, // kW
       pacOut: isNaN(pacOut) ? null : pacOut,
-      pEms: isNaN(pEms) ? null : pEms,
+      pEms: isNaN(pEms) ? null : pEms, // kW
     });
   }
   return rows;
@@ -85,6 +87,7 @@ function buildEssSeries(allRows) {
   const battTotal = [];
   const socCombined = [];
   const pacOutSeries = [];
+  const emsSetpointSeries = [];
 
   let lastPower = { 0: null, 1: null };
   let lastSoc = { 0: null, 1: null };
@@ -123,6 +126,9 @@ function buildEssSeries(allRows) {
     if (lastPacOut[0] !== null || lastPacOut[1] !== null) {
       pacOutSeries.push({ x: ts, y: (lastPacOut[0] || 0) + (lastPacOut[1] || 0) });
     }
+    if (lastEms !== null) {
+      emsSetpointSeries.push({ x: ts, y: lastEms });
+    }
 
     i = j;
   }
@@ -135,7 +141,8 @@ function buildEssSeries(allRows) {
     battTotal,
     socCombined,
     pacOutSeries,
-    emsSetpoint: lastEms,
+    emsSetpointSeries,
+    emsSetpoint: lastEms, // latest value in the selection, kW
     range: rows.length ? { min: rows[0].ts, max: rows[rows.length - 1].ts } : null,
   };
 }
